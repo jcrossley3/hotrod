@@ -1,6 +1,6 @@
 (ns immutant.cache.hotrod
   (:use [immutant.cache.core :only (manager builder)]
-        [immutant.daemons :only (Daemon create)])
+        [immutant.daemons :only (Daemon)])
   (:import org.infinispan.commons.equivalence.ByteArrayEquivalence
            org.infinispan.manager.DefaultCacheManager
            org.infinispan.configuration.global.GlobalConfigurationBuilder
