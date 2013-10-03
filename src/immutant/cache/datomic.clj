@@ -4,6 +4,4 @@
 
 (defn start-datastore
   []
-  (let [manager (hotrod/cache-manager)]
-    (hotrod/configure-cache "datomic" manager)
-    (daemon/create "hotrod" (hotrod/daemon manager))))
+  (daemon/create "hotrod" (hotrod/daemon "datomic")))

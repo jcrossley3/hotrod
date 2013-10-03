@@ -9,13 +9,13 @@
            org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder))
 
 (defn manager-config-builder
-  ([name]
-     (let [current (.getCacheManagerConfiguration @manager)
-           props (assoc (into {} (.. current transport properties)) JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider")]
-       (.. (GlobalConfigurationBuilder.)
-           (read current)
-           (classLoader (.getContextClassLoader (Thread/currentThread)))
-           transport (transport (JGroupsTransport.)) (withProperties (doto (java.util.Properties.) (.putAll props)))))))
+  []
+  (let [current (.getCacheManagerConfiguration @manager)
+        props (assoc (into {} (.. current transport properties)) JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider")]
+    (.. (GlobalConfigurationBuilder.)
+        (read current)
+        (classLoader (.getContextClassLoader (Thread/currentThread)))
+        transport (transport (JGroupsTransport.)) (withProperties (doto (java.util.Properties.) (.putAll props))))))
 
 (defn cache-config-builder
   []
@@ -23,7 +23,7 @@
       dataContainer (keyEquivalence ByteArrayEquivalence/INSTANCE)))
 
 (defn cache-manager
-  ([] (cache-manager (manager-config-builder "hotrod")))
+  ([] (cache-manager (manager-config-builder)))
   ([builder] (DefaultCacheManager. (.build builder))))
 
 (defn configure-cache
@@ -34,12 +34,19 @@
      (.getCache manager name)))
 
 (defn daemon
-  [manager]
-  (let [hotrod (HotRodServer.)
-        hotrod-builder (HotRodServerConfigurationBuilder.)]
-    (reify Daemon
-      (start [_]
-        (.start hotrod (.build hotrod-builder) manager))
-      (stop [_]
-        (.stop hotrod)
-        (.stop manager)))))
+  ([cache-name]
+     (daemon cache-name (cache-config-builder)))
+  ([cache-name cache-builder]
+     (daemon cache-name cache-builder (manager-config-builder)))
+  ([cache-name cache-builder manager-builder]
+     (let [manager (atom nil)
+           hotrod (HotRodServer.)
+           hotrod-builder (HotRodServerConfigurationBuilder.)]
+       (reify Daemon
+         (start [_]
+           (reset! manager (cache-manager manager-builder))
+           (configure-cache cache-name @manager cache-builder)
+           (.start hotrod (.build hotrod-builder) @manager))
+         (stop [_]
+           (.stop hotrod)
+           (.stop @manager))))))
