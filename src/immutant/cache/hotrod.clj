@@ -4,16 +4,18 @@
   (:import org.infinispan.commons.equivalence.ByteArrayEquivalence
            org.infinispan.manager.DefaultCacheManager
            org.infinispan.configuration.global.GlobalConfigurationBuilder
-           ;; org.infinispan.remoting.transport.jgroups.JGroupsTransport
+           org.infinispan.remoting.transport.jgroups.JGroupsTransport
            org.infinispan.server.hotrod.HotRodServer
            org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder))
 
 (defn manager-config-builder
   ([name]
-     (.. (GlobalConfigurationBuilder.)
-         (read (.getCacheManagerConfiguration @manager))
-         (classLoader (.getContextClassLoader (Thread/currentThread)))
-         transport (clusterName name))))
+     (let [current (.getCacheManagerConfiguration @manager)
+           props (assoc (into {} (.. current transport properties)) JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider")]
+       (.. (GlobalConfigurationBuilder.)
+           (read current)
+           (classLoader (.getContextClassLoader (Thread/currentThread)))
+           transport (transport (JGroupsTransport.)) (withProperties (doto (java.util.Properties.) (.putAll props)))))))
 
 (defn cache-config-builder
   []

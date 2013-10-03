@@ -1,4 +1,5 @@
 (ns immutant.init
   (:require [immutant.cache.datomic :as datomic]))
 
-(datomic/start-datastore)
+;;; Uncomment to see deadlock at deploy
+;; (datomic/start-datastore)
