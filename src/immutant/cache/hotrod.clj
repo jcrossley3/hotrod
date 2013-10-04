@@ -8,6 +8,14 @@
            org.infinispan.server.hotrod.HotRodServer
            org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder))
 
+;;; This is effectively a dependency declaration. It ensures that the
+;;; JGroups transport is initialized since that only occurs lazily
+;;; when the first cache is created. Otherwise, we risk a race
+;;; condition when we try to create a cache using the CacheManager for
+;;; the HotRodServer *before* the AS CM (from which we get our config)
+;;; has initialized.
+(.getCache @manager)
+
 (defn manager-config-builder
   []
   (let [current (.getCacheManagerConfiguration @manager)
