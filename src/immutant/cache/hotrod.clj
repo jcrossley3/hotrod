@@ -19,11 +19,12 @@
 (defn manager-config-builder
   []
   (let [current (.getCacheManagerConfiguration @manager)
-        props (assoc (into {} (.. current transport properties)) JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider")]
+        props (assoc (into {} (.. current transport properties)) JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider")
+        jgroups (if (.. current transport transport) (JGroupsTransport.))]
     (.. (GlobalConfigurationBuilder.)
         (read current)
         (classLoader (.getContextClassLoader (Thread/currentThread)))
-        transport (transport (JGroupsTransport.)) (withProperties (doto (java.util.Properties.) (.putAll props))))))
+        transport (transport jgroups) (withProperties (doto (java.util.Properties.) (.putAll props))))))
 
 (defn cache-config-builder
   []
