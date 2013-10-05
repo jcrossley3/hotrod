@@ -2,5 +2,5 @@
   (:require [immutant.cache.hotrod :as hotrod]
             [immutant.daemons      :as daemon]))
 
-(defn start-datastore []
-  (daemon/create "hotrod" (hotrod/daemon "datomic")))
+(defn start-datastore [& opts]
+  (daemon/create "hotrod" (apply hotrod/daemon "datomic" opts)))

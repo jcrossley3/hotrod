@@ -1,6 +1,7 @@
 (ns immutant.cache.hotrod
-  (:use [immutant.cache.core :only (manager builder)]
-        [immutant.daemons :only (Daemon)])
+  (:use [immutant.cache.core :only (manager builder start)]
+        [immutant.daemons :only (Daemon)]
+        [immutant.util :only (mapply)])
   (:import org.infinispan.commons.equivalence.ByteArrayEquivalence
            org.infinispan.manager.DefaultCacheManager
            org.infinispan.configuration.global.GlobalConfigurationBuilder
@@ -16,46 +17,63 @@
 ;;; has initialized.
 (.getCache @manager)
 
+(defn hotrod-config-builder
+  "Configuration builder for the HotRod server"
+  [& {:keys [host port] :or {host "127.0.0.1", port 11222}}]
+  (.. (HotRodServerConfigurationBuilder.) (host host) (port port)))
+
 (defn manager-config-builder
+  "Use the configuration builder from the AS CacheManager,
+  hijacking its JGroups channel when clustered"
   []
   (let [current (.getCacheManagerConfiguration @manager)
-        props (assoc (into {} (.. current transport properties)) JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider")
-        jgroups (if (.. current transport transport) (JGroupsTransport.))]
-    (.. (GlobalConfigurationBuilder.)
-        (read current)
-        (classLoader (.getContextClassLoader (Thread/currentThread)))
-        transport (transport jgroups) (withProperties (doto (java.util.Properties.) (.putAll props))))))
+        builder (.. (GlobalConfigurationBuilder.)
+                    (read current)
+                    (classLoader (.getContextClassLoader (Thread/currentThread))))]
+    (if (.. current transport transport) ; non-nil means we're clustered
+      (.. builder transport (transport (JGroupsTransport.))
+          (withProperties (doto (java.util.Properties.)
+                            (.putAll (.. current transport properties))
+                            (.put JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider"))))
+      builder)))
 
 (defn cache-config-builder
+  "Use the default configuration builder for caches created from
+  immutant.cache, with a comparator for hotrod's byte[] keys"
   []
   (.. (builder {})
       dataContainer (keyEquivalence ByteArrayEquivalence/INSTANCE)))
 
 (defn cache-manager
+  "HotRod requires its very own CacheManager, so it can hook into its
+  lifecycle events. This prevents us from directly exposing the AS CM,
+  but we do borrow its config."
   ([] (cache-manager (manager-config-builder)))
   ([builder] (DefaultCacheManager. (.build builder))))
 
 (defn configure-cache
+  "Create a cache via the passed CacheManager"
   ([name manager]
      (configure-cache name manager (cache-config-builder)))
   ([name manager builder]
-     (.defineConfiguration manager name (.build builder))
-     (.getCache manager name)))
+     (start name (.build builder) manager)))
 
 (defn daemon
-  ([cache-name]
-     (daemon cache-name (cache-config-builder)))
-  ([cache-name cache-builder]
-     (daemon cache-name cache-builder (manager-config-builder)))
-  ([cache-name cache-builder manager-builder]
-     (let [manager (atom nil)
-           hotrod (HotRodServer.)
-           hotrod-builder (HotRodServerConfigurationBuilder.)]
-       (reify Daemon
-         (start [_]
-           (reset! manager (cache-manager manager-builder))
-           (configure-cache cache-name @manager cache-builder)
-           (.start hotrod (.build hotrod-builder) @manager))
-         (stop [_]
-           (.stop hotrod)
-           (.stop @manager))))))
+  "Returns an immutant.daemons/Daemon instance that when started,
+  starts a CacheManager, a single Cache and a HotRod server, each
+  configured by its respective configuration builder, any of which may
+  be overridden via options"
+  [cache-name & {:keys [cache-builder manager-builder hotrod-builder host port] :as opts}]
+  (let [cache-cb   (or cache-builder   (cache-config-builder))
+        manager-cb (or manager-builder (manager-config-builder))
+        hotrod-cb  (or hotrod-builder  (mapply hotrod-config-builder opts))
+        manager (atom nil)             ; cannot be re-used once stopped
+        hotrod  (HotRodServer.)]
+    (reify Daemon
+      (start [_]
+        (reset! manager (cache-manager manager-cb))
+        (configure-cache cache-name @manager cache-cb)
+        (.start hotrod (.build hotrod-cb) @manager))
+      (stop [_]
+        (.stop hotrod)
+        (.stop @manager)))))
