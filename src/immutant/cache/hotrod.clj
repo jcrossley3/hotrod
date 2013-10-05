@@ -58,6 +58,13 @@
   ([name manager builder]
      (start name (.build builder) manager)))
 
+(defn build-with-port-offset
+  [hotrod-builder]
+  (if-let [offset (System/getProperty "jboss.socket.binding.port-offset")]
+    (let [current (.build hotrod-builder)]
+      (.build (.. hotrod-builder (port (+ (.port current) (read-string offset))))))
+    (.build hotrod-builder)))
+
 (defn daemon
   "Returns an immutant.daemons/Daemon instance that when started,
   starts a CacheManager, a single Cache and a HotRod server, each
@@ -73,7 +80,7 @@
       (start [_]
         (reset! manager (cache-manager manager-cb))
         (configure-cache cache-name @manager cache-cb)
-        (.start hotrod (.build hotrod-cb) @manager))
+        (.start hotrod (build-with-port-offset hotrod-cb) @manager))
       (stop [_]
         (.stop hotrod)
         (.stop @manager)))))
