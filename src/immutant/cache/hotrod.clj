@@ -2,6 +2,7 @@
   (:use [immutant.cache.core :only (manager builder start)]
         [immutant.daemons :only (Daemon)]
         [immutant.util :only (mapply)])
+  (:require [immutant.registry :as registry])
   (:import org.infinispan.commons.equivalence.ByteArrayEquivalence
            org.infinispan.manager.DefaultCacheManager
            org.infinispan.configuration.global.GlobalConfigurationBuilder
@@ -27,14 +28,16 @@
   hijacking its JGroups channel when clustered"
   []
   (let [current (.getCacheManagerConfiguration @manager)
-        builder (.. (GlobalConfigurationBuilder.)
-                    (read current)
-                    (classLoader (.getContextClassLoader (Thread/currentThread))))]
+        builder (GlobalConfigurationBuilder.)]
+    (let [s (.serialization builder)]
+      (doseq [[id izer] (.. current serialization advancedExternalizers)]
+        (.addAdvancedExternalizer s id izer))
+      (.classResolver s (-> current .serialization .classResolver)))
     (if (.. current transport transport) ; non-nil means we're clustered
-      (.. builder transport (transport (JGroupsTransport.))
-          (withProperties (doto (java.util.Properties.)
-                            (.putAll (.. current transport properties))
-                            (.put JGroupsTransport/CHANNEL_LOOKUP "org.immutant.cache.ChannelProvider"))))
+      (.. builder transport
+          (clusterName "hotrod")
+          (transport (JGroupsTransport.
+                      (.createChannel (registry/get "jboss.jgroups.stack") "hotrod"))))
       builder)))
 
 (defn cache-config-builder
