@@ -24,21 +24,22 @@
   (.. (HotRodServerConfigurationBuilder.) (host host) (port port)))
 
 (defn manager-config-builder
-  "Use the configuration builder from the AS CacheManager,
-  hijacking its JGroups channel when clustered"
-  []
+  "Create the global configuration builder, creating a new JGroups
+  channel for clustering, using the externalizers from the AS
+  CacheManager"
+  [& {:keys [name] :or {name "hotrod"}}]
   (let [current (.getCacheManagerConfiguration @manager)
         builder (GlobalConfigurationBuilder.)]
-    (let [s (.serialization builder)]
-      (doseq [[id izer] (.. current serialization advancedExternalizers)]
-        (.addAdvancedExternalizer s id izer))
-      (.classResolver s (-> current .serialization .classResolver)))
-    (if (.. current transport transport) ; non-nil means we're clustered
+    (when (.. current transport transport) ; we're clustered
       (.. builder transport
-          (clusterName "hotrod")
+          (clusterName name)
           (transport (JGroupsTransport.
-                      (.createChannel (registry/get "jboss.jgroups.stack") "hotrod"))))
-      builder)))
+                      (.createChannel (registry/get "jboss.jgroups.stack") name))))
+      (let [s (.serialization builder)]
+        (doseq [[id izer] (.. current serialization advancedExternalizers)]
+          (.addAdvancedExternalizer s id izer))
+        (.classResolver s (.. current serialization classResolver))))
+    (.. builder globalJmxStatistics (cacheManagerName name))))
 
 (defn cache-config-builder
   "Use the default configuration builder for caches created from
@@ -68,6 +69,14 @@
       (.build (.. hotrod-builder (port (+ (.port current) (read-string offset))))))
     (.build hotrod-builder)))
 
+(defrecord Server [manager hotrod config]
+  Daemon
+  (start [_]
+    (.start hotrod config manager))
+  (stop [_]
+    (.stop hotrod)
+    (.stop manager)))
+
 (defn daemon
   "Returns an immutant.daemons/Daemon instance that when started,
   starts a CacheManager, a single Cache and a HotRod server, each
@@ -77,13 +86,7 @@
   (let [cache-cb   (or cache-builder   (cache-config-builder))
         manager-cb (or manager-builder (manager-config-builder))
         hotrod-cb  (or hotrod-builder  (mapply hotrod-config-builder opts))
-        manager (atom nil)             ; cannot be re-used once stopped
-        hotrod  (HotRodServer.)]
-    (reify Daemon
-      (start [_]
-        (reset! manager (cache-manager manager-cb))
-        (configure-cache cache-name @manager cache-cb)
-        (.start hotrod (build-with-port-offset hotrod-cb) @manager))
-      (stop [_]
-        (.stop hotrod)
-        (.stop @manager)))))
+        manager (cache-manager manager-cb)
+        _ (configure-cache cache-name manager cache-cb)]
+    (->Server manager (HotRodServer.) (build-with-port-offset hotrod-cb))))
+

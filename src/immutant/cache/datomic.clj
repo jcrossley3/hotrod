@@ -3,4 +3,6 @@
             [immutant.daemons      :as daemon]))
 
 (defn start-datastore [& opts]
-  (daemon/create "hotrod" (apply hotrod/daemon "datomic" opts) :singleton false))
+  (let [server (apply hotrod/daemon "datomic" opts)]
+    (daemon/create "hotrod" server :singleton false)
+    server))
